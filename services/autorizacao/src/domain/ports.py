@@ -1,0 +1,72 @@
+"""Ports (interfaces) do contexto de Autorização.
+
+`LimiteGateway` é o port de anticorrupção (ACL) para o contexto de
+Limites: em produção, o adapter concreto chama o Serviço de Limites via
+HTTP/API Gateway; em testes e no `make demo` local, um adapter in-process
+delega diretamente para o caso de uso do serviço de Limites, permitindo
+testar a saga completa sem rede.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from datetime import datetime
+from typing import Optional
+
+from .autorizacao import Autorizacao
+from .idempotencia import RegistroIdempotencia
+from .value_objects import Money, TipoOperacao
+
+
+class AutorizacaoRepository(ABC):
+    @abstractmethod
+    def buscar(self, id_autorizacao: str) -> Optional[Autorizacao]:
+        ...
+
+    @abstractmethod
+    def salvar(self, autorizacao: Autorizacao) -> None:
+        ...
+
+    @abstractmethod
+    def listar_pendentes_antes_de(self, limite_tempo: datetime) -> list[Autorizacao]:
+        """Usado pelo sweeper (ver ADR 04) para reconciliar autorizações
+        presas em PENDENTE há mais tempo que o timeout configurado."""
+
+
+class IdempotenciaRepository(ABC):
+    @abstractmethod
+    def buscar(self, idempotency_key: str) -> Optional[RegistroIdempotencia]:
+        ...
+
+    @abstractmethod
+    def salvar(self, registro: RegistroIdempotencia) -> None:
+        ...
+
+
+class LimiteGatewayResultado:
+    """DTO de resposta do gateway de Limites, agnóstico de transporte."""
+
+    def __init__(self, saldo_reservado: Money):
+        self.saldo_reservado = saldo_reservado
+
+
+class LimiteGateway(ABC):
+    @abstractmethod
+    def aplicar_operacao(
+        self,
+        id_contrato: str,
+        id_autorizacao: str,
+        valor: Money,
+        tipo_operacao: TipoOperacao,
+    ) -> LimiteGatewayResultado:
+        """Solicita a reserva/liberação de limite. Deve levantar
+        `LimiteInsuficienteError` (do domínio de Autorização) em caso de
+        recusa de negócio, ou uma exceção de indeterminação (timeout/5xx)
+        que o caso de uso trata deixando a autorização `PENDENTE`."""
+
+    @abstractmethod
+    def consultar_reserva(
+        self, id_contrato: str, id_autorizacao: str
+    ) -> Optional[LimiteGatewayResultado]:
+        """Usado pelo sweeper (ADR 04) para descobrir, de forma
+        idempotente, se uma reserva foi efetivada do lado do Serviço de
+        Limites. Retorna `None` se a reserva nunca existiu."""
