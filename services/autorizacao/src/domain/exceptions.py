@@ -38,3 +38,8 @@ class LimiteGatewayIndeterminadoError(AutorizacaoDomainError):
     (timeout, erro 5xx) — não se sabe se a reserva foi efetivada do outro
     lado. A autorização permanece PENDENTE e cabe ao sweeper (ADR 04)
     reconciliar o estado posteriormente."""
+
+
+class LimiteOperacaoInvalidaError(AutorizacaoDomainError):
+    """O Serviço de Limites recusou a operação por violar uma invariante
+    que não é "limite insuficiente" (ex: estorno maior que o reservado)."""

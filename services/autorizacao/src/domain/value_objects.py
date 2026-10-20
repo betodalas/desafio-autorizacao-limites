@@ -46,5 +46,17 @@ class Money:
             raise ValorInvalidoError("Valor monetário deve ser maior que zero")
         return self
 
+    def __le__(self, outro: "Money") -> bool:
+        return self.valor <= outro.valor
+
+    def __lt__(self, outro: "Money") -> bool:
+        return self.valor < outro.valor
+
+    def __ge__(self, outro: "Money") -> bool:
+        return self.valor >= outro.valor
+
+    def __gt__(self, outro: "Money") -> bool:
+        return self.valor > outro.valor
+
     def __str__(self) -> str:
         return f"{self.valor:.2f}"

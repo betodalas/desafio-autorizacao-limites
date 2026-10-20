@@ -5,6 +5,7 @@ from .exceptions import (
     AutorizacaoOriginalInvalidaError,
     LimiteGatewayIndeterminadoError,
     LimiteInsuficienteError,
+    LimiteOperacaoInvalidaError,
     OperacaoEmAndamentoError,
     PayloadDivergenteError,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "AutorizacaoOriginalInvalidaError",
     "LimiteGatewayIndeterminadoError",
     "LimiteInsuficienteError",
+    "LimiteOperacaoInvalidaError",
     "OperacaoEmAndamentoError",
     "PayloadDivergenteError",
     "RegistroIdempotencia",

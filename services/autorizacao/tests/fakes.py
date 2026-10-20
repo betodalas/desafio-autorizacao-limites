@@ -6,7 +6,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from src.domain import LimiteGatewayIndeterminadoError, LimiteInsuficienteError, Money
+from src.domain import (
+    LimiteGatewayIndeterminadoError,
+    LimiteInsuficienteError,
+    LimiteOperacaoInvalidaError,
+    Money,
+)
 from src.domain.ports import LimiteGateway, LimiteGatewayResultado
 from src.domain.value_objects import TipoOperacao
 
@@ -18,12 +23,15 @@ class FakeLimiteGateway(LimiteGateway):
       `LimiteInsuficienteError` (simula 402 do Serviço de Limites).
     - `indeterminado`: se True, toda chamada levanta
       `LimiteGatewayIndeterminadoError` (simula timeout/5xx).
+    - `operacao_invalida`: se True, levanta `LimiteOperacaoInvalidaError`
+      (simula recusa de estorno maior que o reservado).
     - `saldo_reservado_resultante`: valor devolvido em caso de sucesso.
     """
 
     def __init__(self) -> None:
         self.recusar = False
         self.indeterminado = False
+        self.operacao_invalida = False
         self.saldo_reservado_resultante = Money.from_str("150.00")
         self.chamadas: list[tuple[str, str, str, TipoOperacao]] = []
         self._reservas_efetivadas: dict[tuple[str, str], Money] = {}
@@ -38,6 +46,8 @@ class FakeLimiteGateway(LimiteGateway):
         self.chamadas.append((id_contrato, id_autorizacao, str(valor), tipo_operacao))
         if self.indeterminado:
             raise LimiteGatewayIndeterminadoError("timeout simulado")
+        if self.operacao_invalida:
+            raise LimiteOperacaoInvalidaError("estorno maior que reservado simulado")
         if self.recusar:
             raise LimiteInsuficienteError("limite insuficiente simulado")
         self._reservas_efetivadas[(id_contrato, id_autorizacao)] = self.saldo_reservado_resultante
