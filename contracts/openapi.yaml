@@ -1,0 +1,268 @@
+openapi: 3.0.3
+info:
+  title: Serviço de Autorização de Transações
+  description: >
+    API síncrona responsável por validar e autorizar operações financeiras em
+    tempo real, reservando limite junto ao Serviço de Limites e publicando
+    eventos de domínio para consumidores desacoplados (contabilização,
+    antifraude, notificações, data platform).
+  version: "1.0"
+  contact:
+    name: Time de Plataforma de Finanças (POD99)
+servers:
+  - url: https://api.itau.com.br/financas/autorizacao
+    description: Produção (via Amazon API Gateway)
+  - url: http://localhost:8080
+    description: Ambiente local (kind + LocalStack)
+
+tags:
+  - name: Autorizações
+    description: Autorização e estorno de transações financeiras
+
+paths:
+  /v1/contratos/{id_contrato}/autorizacoes:
+    post:
+      operationId: autorizarTransacao
+      summary: Autoriza (ou recusa) uma transação financeira sobre um contrato
+      tags: [Autorizações]
+      parameters:
+        - $ref: '#/components/parameters/IdContrato'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutorizacaoRequest'
+            examples:
+              debito:
+                value:
+                  id_conta: "00012345678"
+                  valor: "150.00"
+                  moeda: "BRL"
+                  tipo_operacao: "DEBITO"
+                  id_estabelecimento: "EST-001"
+                  metadata:
+                    canal: "mobile"
+                    geo: "-23.5505,-46.6333"
+      responses:
+        '201':
+          description: Autorização aprovada (nova reserva de limite criada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutorizacaoResponse'
+        '200':
+          description: >
+            Requisição repetida com a mesma Idempotency-Key e payload idêntico;
+            retorna o resultado original já processado, sem efeitos colaterais
+            adicionais.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutorizacaoResponse'
+        '402':
+          description: Limite insuficiente para a operação (recusa por regra de negócio)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://api.itau.com.br/problems/limite-insuficiente"
+                title: "Limite insuficiente"
+                status: 402
+                detail: "Saldo disponível de limite é menor que o valor solicitado."
+                correlation_id: "8f14e45f-ceea-467e-9eef-3a1f8a9c0b2e"
+        '409':
+          description: >
+            Conflito de estado — concorrência na reserva de limite, ou
+            operação com a mesma Idempotency-Key ainda em processamento.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          description: >
+            Payload inválido segundo as regras de domínio, ou reenvio da
+            mesma Idempotency-Key com um payload diferente do original.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          description: Rate limit excedido para o cliente/plano
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '503':
+          description: Degradação — circuit breaker aberto / fail-fast
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /v1/contratos/{id_contrato}/autorizacoes/{id_autorizacao}/estornos:
+    post:
+      operationId: estornarAutorizacao
+      summary: Estorna (total ou parcialmente) uma autorização previamente concedida
+      tags: [Autorizações]
+      parameters:
+        - $ref: '#/components/parameters/IdContrato'
+        - name: id_autorizacao
+          in: path
+          required: true
+          description: Identificador da autorização original a ser estornada
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EstornoRequest'
+      responses:
+        '201':
+          description: Estorno aprovado (limite liberado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutorizacaoResponse'
+        '200':
+          description: Requisição de estorno repetida (idempotência)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutorizacaoResponse'
+        '409':
+          description: Conflito de estado (concorrência ou autorização original não encontrada no estado esperado)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          description: Payload inválido ou regra de domínio violada (ex. valor de estorno maior que o reservado)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+components:
+  parameters:
+    IdContrato:
+      name: id_contrato
+      in: path
+      required: true
+      description: Identificador do contrato (crédito, investimento, seguros, consórcio)
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >
+        Chave única (UUID) fornecida pelo cliente para garantir idempotência
+        da operação mutante. Reenvios com a mesma chave e mesmo payload
+        retornam o resultado original (200); reenvios com a mesma chave e
+        payload diferente retornam 422.
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    TipoOperacao:
+      type: string
+      enum: [DEBITO, CREDITO, RESERVA, ESTORNO]
+
+    AutorizacaoRequest:
+      type: object
+      required: [id_conta, valor, moeda, tipo_operacao]
+      properties:
+        id_conta:
+          type: string
+          description: Número da conta corrente
+        valor:
+          type: string
+          pattern: '^[0-9]+\.[0-9]{2}$'
+          description: >
+            Valor da transação em BRL, representado como string decimal
+            (ex. "150.00") para evitar perda de precisão de ponto flutuante.
+            Deve ser maior que zero.
+          example: "150.00"
+        moeda:
+          type: string
+          description: Código ISO 4217
+          example: "BRL"
+        tipo_operacao:
+          $ref: '#/components/schemas/TipoOperacao'
+        id_estabelecimento:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    EstornoRequest:
+      type: object
+      required: [id_autorizacao_original, valor, moeda]
+      properties:
+        id_autorizacao_original:
+          type: string
+          format: uuid
+          description: Referência à autorização original que está sendo estornada
+        valor:
+          type: string
+          pattern: '^[0-9]+\.[0-9]{2}$'
+          description: Valor a estornar (pode ser parcial), como string decimal
+        moeda:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    AutorizacaoResponse:
+      type: object
+      properties:
+        id_autorizacao:
+          type: string
+          format: uuid
+        id_contrato:
+          type: string
+        status:
+          type: string
+          enum: [APROVADA, RECUSADA]
+        valor:
+          type: string
+        saldo_reservado:
+          type: string
+          description: Saldo de limite reservado (comprometido) após a operação
+        criado_em:
+          type: string
+          format: date-time
+
+    ProblemDetails:
+      type: object
+      description: RFC 7807 Problem Details
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        correlation_id:
+          type: string
+          format: uuid

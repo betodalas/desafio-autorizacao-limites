@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://itau.com.br/financas/eventos/TransacaoAutorizada.v1.schema.json",
+  "title": "TransacaoAutorizada",
+  "description": "Evento de domínio publicado no Amazon EventBridge após a autorização de uma transação financeira. Formato compatível com CloudEvents (campos de envelope mapeados para attributes do EventBridge).",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "event_version",
+    "occurred_at",
+    "id_autorizacao",
+    "id_contrato",
+    "valor",
+    "saldo_reservado",
+    "correlation_id"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador único do evento (UUID), usado para deduplicação em consumidores (entrega at-least-once)."
+    },
+    "event_type": {
+      "type": "string",
+      "const": "TransacaoAutorizada",
+      "description": "Nome do evento, no passado (fato de negócio já ocorrido)."
+    },
+    "event_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Versão do schema do evento (ex: 1.0). Evolução deve ser retrocompatível.",
+      "example": "1.0"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data/hora do fato de negócio em UTC (ISO 8601)."
+    },
+    "id_autorizacao": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Referência à autorização gerada pelo Serviço de Autorização."
+    },
+    "id_contrato": {
+      "type": "string",
+      "description": "Identificador do contrato afetado pela operação."
+    },
+    "valor": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{2}$",
+      "description": "Valor autorizado em BRL, representado como string decimal para evitar perda de precisão.",
+      "example": "150.00"
+    },
+    "saldo_reservado": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{2}$",
+      "description": "Limite reservado (comprometido) no contrato após a operação, como string decimal.",
+      "example": "4850.00"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identificador de rastreio ponta-a-ponta da requisição original (ex: derivado da Idempotency-Key ou gerado na borda)."
+    },
+    "trace_id": {
+      "type": ["string", "null"],
+      "description": "ID de trace distribuído no formato W3C Trace Context, quando disponível.",
+      "example": "4bf92f3577b34da6a3ce929d0e0e4736"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "event_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "event_type": "TransacaoAutorizada",
+      "event_version": "1.0",
+      "occurred_at": "2026-02-10T13:45:02.123Z",
+      "id_autorizacao": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+      "id_contrato": "CTR-998877",
+      "valor": "150.00",
+      "saldo_reservado": "4850.00",
+      "correlation_id": "8f14e45f-ceea-467e-9eef-3a1f8a9c0b2e",
+      "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+    }
+  ]
+}
