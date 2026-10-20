@@ -20,11 +20,14 @@ from ..domain import (
     LimiteInsuficienteError,
     Money,
     OperacaoEmAndamentoError,
+    OutboxRepository,
     PayloadDivergenteError,
     RegistroIdempotencia,
+    RegistroOutbox,
     StatusAutorizacao,
     StatusIdempotencia,
     TipoOperacao,
+    TransacaoAutorizada,
     calcular_hash_payload,
 )
 
@@ -75,10 +78,12 @@ class AutorizarTransacaoUseCase:
         autorizacao_repository: AutorizacaoRepository,
         idempotencia_repository: IdempotenciaRepository,
         limite_gateway: LimiteGateway,
+        outbox_repository: Optional[OutboxRepository] = None,
     ):
         self._autorizacoes = autorizacao_repository
         self._idempotencias = idempotencia_repository
         self._limite_gateway = limite_gateway
+        self._outbox = outbox_repository
 
     def executar(self, comando: AutorizarTransacaoComando) -> AutorizacaoResultado:
         payload = asdict(comando)
@@ -131,10 +136,29 @@ class AutorizarTransacaoUseCase:
 
         autorizacao.aprovar(resultado_gateway.saldo_reservado)
         self._autorizacoes.salvar(autorizacao)
+        self._publicar_evento(autorizacao, comando.idempotency_key)
         resultado = AutorizacaoResultado.de_autorizacao(autorizacao)
         registro.concluir(asdict(resultado))
         self._idempotencias.salvar(registro)
         return resultado
+
+    def _publicar_evento(self, autorizacao: Autorizacao, correlation_id: str) -> None:
+        """Grava o evento `TransacaoAutorizada` na outbox (ver ADR 02).
+        Em memória isto não é atômico com `self._autorizacoes.salvar`,
+        mas em produção ambas as escritas compõem o mesmo
+        `TransactWriteItems`. Se `outbox_repository` não for fornecido
+        (ex.: testes focados na saga), a publicação é simplesmente
+        ignorada."""
+        if self._outbox is None:
+            return
+        evento = TransacaoAutorizada.agora(
+            id_autorizacao=autorizacao.id_autorizacao,
+            id_contrato=autorizacao.id_contrato,
+            valor=autorizacao.valor,
+            saldo_reservado=autorizacao.saldo_reservado,
+            correlation_id=correlation_id,
+        )
+        self._outbox.salvar(RegistroOutbox.para(evento))
 
     def _resolver_reenvio(
         self, registro: RegistroIdempotencia, hash_payload: str

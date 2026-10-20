@@ -5,7 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from ..domain import Autorizacao, AutorizacaoRepository, IdempotenciaRepository, RegistroIdempotencia
+from ..domain import (
+    Autorizacao,
+    AutorizacaoRepository,
+    IdempotenciaRepository,
+    OutboxRepository,
+    RegistroIdempotencia,
+    RegistroOutbox,
+    StatusOutbox,
+)
 
 
 class InMemoryAutorizacaoRepository(AutorizacaoRepository):
@@ -37,3 +45,20 @@ class InMemoryIdempotenciaRepository(IdempotenciaRepository):
 
     def salvar(self, registro: RegistroIdempotencia) -> None:
         self._registros[registro.idempotency_key] = registro
+
+
+class InMemoryOutboxRepository(OutboxRepository):
+    """Outbox em memória — o `outbox-relay` local lê desta mesma instância
+    compartilhada em processo (ver `make demo`). Em produção, cada escrita
+    seria persistida em uma tabela DynamoDB própria do serviço."""
+
+    def __init__(self) -> None:
+        self._registros: dict[str, RegistroOutbox] = {}
+
+    def salvar(self, registro: RegistroOutbox) -> None:
+        self._registros[registro.event_id] = registro
+
+    def listar_pendentes(self, limite: int = 50) -> list[RegistroOutbox]:
+        pendentes = [r for r in self._registros.values() if r.status == StatusOutbox.PENDENTE]
+        pendentes.sort(key=lambda r: r.criado_em)
+        return pendentes[:limite]

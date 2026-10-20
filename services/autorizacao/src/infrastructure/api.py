@@ -39,7 +39,11 @@ from ..domain import (
     ValorInvalidoError,
 )
 from .limite_gateway_in_process import InProcessLimiteGateway
-from .memory_repository import InMemoryAutorizacaoRepository, InMemoryIdempotenciaRepository
+from .memory_repository import (
+    InMemoryAutorizacaoRepository,
+    InMemoryIdempotenciaRepository,
+    InMemoryOutboxRepository,
+)
 
 app = FastAPI(
     title="Serviço de Autorização de Transações",
@@ -50,8 +54,9 @@ app = FastAPI(
 _autorizacoes = InMemoryAutorizacaoRepository()
 _idempotencias = InMemoryIdempotenciaRepository()
 _gateway = InProcessLimiteGateway()
-_autorizar = AutorizarTransacaoUseCase(_autorizacoes, _idempotencias, _gateway)
-_estornar = EstornarAutorizacaoUseCase(_autorizacoes, _idempotencias, _gateway)
+_outbox = InMemoryOutboxRepository()
+_autorizar = AutorizarTransacaoUseCase(_autorizacoes, _idempotencias, _gateway, _outbox)
+_estornar = EstornarAutorizacaoUseCase(_autorizacoes, _idempotencias, _gateway, _outbox)
 
 _PROBLEM_TYPE = "https://api.itau.com.br/problems"
 
@@ -180,3 +185,9 @@ def cadastrar_limite(id_contrato: str, body: CadastrarLimiteRequest) -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+def obter_outbox_repository() -> InMemoryOutboxRepository:
+    """Exposto para o `outbox-relay` local (`make demo`), que lê desta
+    mesma instância em processo em vez de uma tabela DynamoDB real."""
+    return _outbox

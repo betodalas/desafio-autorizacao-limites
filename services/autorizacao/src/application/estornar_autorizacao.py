@@ -20,11 +20,14 @@ from ..domain import (
     LimiteOperacaoInvalidaError,
     Money,
     OperacaoEmAndamentoError,
+    OutboxRepository,
     PayloadDivergenteError,
     RegistroIdempotencia,
+    RegistroOutbox,
     StatusAutorizacao,
     StatusIdempotencia,
     TipoOperacao,
+    TransacaoAutorizada,
     calcular_hash_payload,
 )
 from .autorizar_transacao import AutorizacaoResultado
@@ -47,10 +50,12 @@ class EstornarAutorizacaoUseCase:
         autorizacao_repository: AutorizacaoRepository,
         idempotencia_repository: IdempotenciaRepository,
         limite_gateway: LimiteGateway,
+        outbox_repository: Optional[OutboxRepository] = None,
     ):
         self._autorizacoes = autorizacao_repository
         self._idempotencias = idempotencia_repository
         self._limite_gateway = limite_gateway
+        self._outbox = outbox_repository
 
     def executar(self, comando: EstornarAutorizacaoComando) -> AutorizacaoResultado:
         payload = asdict(comando)
@@ -116,6 +121,15 @@ class EstornarAutorizacaoUseCase:
 
         estorno.aprovar(resultado_gateway.saldo_reservado)
         self._autorizacoes.salvar(estorno)
+        if self._outbox is not None:
+            evento = TransacaoAutorizada.agora(
+                id_autorizacao=estorno.id_autorizacao,
+                id_contrato=estorno.id_contrato,
+                valor=estorno.valor,
+                saldo_reservado=estorno.saldo_reservado,
+                correlation_id=comando.idempotency_key,
+            )
+            self._outbox.salvar(RegistroOutbox.para(evento))
         resultado = AutorizacaoResultado.de_autorizacao(estorno)
         registro.concluir(asdict(resultado))
         self._idempotencias.salvar(registro)

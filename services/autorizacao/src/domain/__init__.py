@@ -10,11 +10,13 @@ from .exceptions import (
     PayloadDivergenteError,
 )
 from .idempotencia import RegistroIdempotencia, StatusIdempotencia, calcular_hash_payload
+from .outbox import RegistroOutbox, StatusOutbox
 from .ports import (
     AutorizacaoRepository,
     IdempotenciaRepository,
     LimiteGateway,
     LimiteGatewayResultado,
+    OutboxRepository,
 )
 from .value_objects import Money, TipoOperacao, ValorInvalidoError
 
@@ -32,10 +34,13 @@ __all__ = [
     "RegistroIdempotencia",
     "StatusIdempotencia",
     "calcular_hash_payload",
+    "RegistroOutbox",
+    "StatusOutbox",
     "AutorizacaoRepository",
     "IdempotenciaRepository",
     "LimiteGateway",
     "LimiteGatewayResultado",
+    "OutboxRepository",
     "Money",
     "TipoOperacao",
     "ValorInvalidoError",

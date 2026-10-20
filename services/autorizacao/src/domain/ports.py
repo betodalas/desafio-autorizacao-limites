@@ -14,6 +14,7 @@ from typing import Optional
 
 from .autorizacao import Autorizacao
 from .idempotencia import RegistroIdempotencia
+from .outbox import RegistroOutbox
 from .value_objects import Money, TipoOperacao
 
 
@@ -47,6 +48,20 @@ class LimiteGatewayResultado:
 
     def __init__(self, saldo_reservado: Money):
         self.saldo_reservado = saldo_reservado
+
+
+class OutboxRepository(ABC):
+    """Port de persistência da tabela de outbox (ver ADR 02). O adapter
+    em memória é usado em testes/demo; em produção, o adapter concreto
+    grava na mesma `TransactWriteItems` do agregado de Autorização."""
+
+    @abstractmethod
+    def salvar(self, registro: "RegistroOutbox") -> None:
+        ...
+
+    @abstractmethod
+    def listar_pendentes(self, limite: int = 50) -> list["RegistroOutbox"]:
+        ...
 
 
 class LimiteGateway(ABC):

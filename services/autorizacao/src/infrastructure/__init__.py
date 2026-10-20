@@ -1,3 +1,11 @@
-from .memory_repository import InMemoryAutorizacaoRepository, InMemoryIdempotenciaRepository
+from .memory_repository import (
+    InMemoryAutorizacaoRepository,
+    InMemoryIdempotenciaRepository,
+    InMemoryOutboxRepository,
+)
 
-__all__ = ["InMemoryAutorizacaoRepository", "InMemoryIdempotenciaRepository"]
+__all__ = [
+    "InMemoryAutorizacaoRepository",
+    "InMemoryIdempotenciaRepository",
+    "InMemoryOutboxRepository",
+]
