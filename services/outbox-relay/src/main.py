@@ -13,6 +13,7 @@ import os
 
 from .dynamodb_outbox_source import DynamoDbOutboxSource
 from .eventbridge_publisher import EventBridgePublisher
+from .metrics_server import iniciar_servidor_metricas
 from .worker import RelayWorker
 
 logger = logging.getLogger("outbox_relay.main")
@@ -23,6 +24,7 @@ def main() -> None:  # pragma: no cover
     source = DynamoDbOutboxSource()
     publisher = EventBridgePublisher()
     worker = RelayWorker(source, publisher)
+    iniciar_servidor_metricas(source, porta=int(os.environ.get("METRICS_PORT", "9090")))
     intervalo = float(os.environ.get("RELAY_POLL_INTERVAL_SECONDS", "2"))
     logger.info("outbox-relay iniciado, intervalo=%ss", intervalo)
     worker.run_forever(intervalo_segundos=intervalo)

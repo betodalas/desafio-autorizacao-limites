@@ -8,13 +8,16 @@ Implementa os dois endpoints descritos em `contracts/openapi.yaml`:
 Traduz exceções de domínio/aplicação para HTTP (RFC 7807 Problem Details)
 conforme o contrato, e usa `Idempotency-Key` como cabeçalho obrigatório.
 
-Para rodar localmente (`make demo`) este app usa o
-`InProcessLimiteGateway`, que chama o domínio de Limites diretamente no
-mesmo processo — em produção o gateway real falaria HTTP/EventBridge com o
-serviço de Limites publicado atrás do API Gateway (ver ADR 05).
+Para rodar localmente no mesmo processo (`make demo` fora de containers)
+este app usa o `InProcessLimiteGateway`, que chama o domínio de Limites
+diretamente no mesmo processo. Quando a variável de ambiente
+`LIMITES_SERVICE_URL` está definida (caso de containers/k8s separados —
+ver `deploy/k8s/`), usa o `HttpLimiteGateway` real, que fala HTTP com o
+Serviço de Limites (em produção, atrás do API Gateway — ver ADR 05).
 """
 from __future__ import annotations
 
+import os
 from dataclasses import asdict
 from typing import Any, Optional
 
@@ -38,12 +41,25 @@ from ..domain import (
     PayloadDivergenteError,
     ValorInvalidoError,
 )
-from .limite_gateway_in_process import InProcessLimiteGateway
 from .memory_repository import (
     InMemoryAutorizacaoRepository,
     InMemoryIdempotenciaRepository,
     InMemoryOutboxRepository,
 )
+
+
+def _construir_gateway():
+    """Escolhe o adapter de `LimiteGateway` conforme o ambiente: HTTP real
+    quando `LIMITES_SERVICE_URL` está configurada (containers/k8s
+    separados), ou in-process para `make demo` no mesmo processo."""
+    if os.environ.get("LIMITES_SERVICE_URL"):
+        from .http_limite_gateway import HttpLimiteGateway
+
+        return HttpLimiteGateway()
+    from .limite_gateway_in_process import InProcessLimiteGateway
+
+    return InProcessLimiteGateway()
+
 
 app = FastAPI(
     title="Serviço de Autorização de Transações",
@@ -53,7 +69,7 @@ app = FastAPI(
 
 _autorizacoes = InMemoryAutorizacaoRepository()
 _idempotencias = InMemoryIdempotenciaRepository()
-_gateway = InProcessLimiteGateway()
+_gateway = _construir_gateway()
 _outbox = InMemoryOutboxRepository()
 _autorizar = AutorizarTransacaoUseCase(_autorizacoes, _idempotencias, _gateway, _outbox)
 _estornar = EstornarAutorizacaoUseCase(_autorizacoes, _idempotencias, _gateway, _outbox)
