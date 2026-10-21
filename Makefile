@@ -8,12 +8,22 @@ LOCALSTACK_URL := http://localhost:4566
 AUTORIZACAO_URL := http://localhost:8080
 TF_DIR := terraform/envs/local
 
-.PHONY: help up down demo build-images load-images deploy-k8s install-keda wait-ready terraform-apply seed clean-images test
+.PHONY: help up down demo build-images load-images deploy-k8s install-keda wait-ready terraform-apply seed clean-images test setup
 
 help: ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-test: ## Roda a suíte de testes de todos os serviços (requer .venv por serviço, ver README)
+setup: ## Cria o .venv de cada serviço e instala as dependências (inclui dev/pytest), caso ainda não existam
+	@set -e; \
+	for svc in limites autorizacao contabilizacao outbox-relay; do \
+		if [ ! -x services/$$svc/.venv/bin/python ]; then \
+			echo ">> setup: $$svc"; \
+			python3 -m venv services/$$svc/.venv; \
+			services/$$svc/.venv/bin/pip install -q -e "services/$$svc[dev]"; \
+		fi; \
+	done
+
+test: setup ## Roda a suíte de testes de todos os serviços (cria os .venv automaticamente se faltarem)
 	@set -e; \
 	for svc in limites autorizacao contabilizacao outbox-relay; do \
 		echo ">> testes: $$svc"; \
