@@ -120,7 +120,7 @@ class EstornarAutorizacaoUseCase:
             ) from exc
 
         estorno.aprovar(resultado_gateway.saldo_reservado)
-        self._autorizacoes.salvar(estorno)
+        registro_outbox = None
         if self._outbox is not None:
             evento = TransacaoAutorizada.agora(
                 id_autorizacao=estorno.id_autorizacao,
@@ -129,7 +129,8 @@ class EstornarAutorizacaoUseCase:
                 saldo_reservado=estorno.saldo_reservado,
                 correlation_id=comando.idempotency_key,
             )
-            self._outbox.salvar(RegistroOutbox.para(evento))
+            registro_outbox = RegistroOutbox.para(evento)
+        self._autorizacoes.salvar_com_evento(estorno, registro_outbox, self._outbox)
         resultado = AutorizacaoResultado.de_autorizacao(estorno)
         registro.concluir(asdict(resultado))
         self._idempotencias.salvar(registro)

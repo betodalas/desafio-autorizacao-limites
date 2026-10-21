@@ -2,14 +2,14 @@
 Autorização (ver ADR 02 e ADR 04), usados quando `AWS_ENDPOINT_URL` está
 configurado (k8s/LocalStack) — ver seleção em `api.py`.
 
-Cada `salvar()` é uma escrita isolada no DynamoDB (não uma
-`TransactWriteItems` multi-tabela): o caso de uso já trata a saga como uma
-sequência de passos idempotentes (ver `autorizar_transacao.py`), então
-cada repositório só precisa persistir o próprio agregado de forma
-duravel — não há uma invariante entre tabelas diferentes que exija
-atomicidade multi-item aqui (diferente do agregado `Limite`, que tem essa
-necessidade dentro da própria tabela, ver `services/limites/.../
-dynamodb_repository.py`).
+`DynamoDbAutorizacaoRepository.salvar_com_evento` é o ponto que fecha o
+gap descrito na ADR 02: a decisão de autorização e o evento de outbox são
+gravados numa única `TransactWriteItems` cruzando as tabelas
+`autorizacoes` e `autorizacao-outbox` — nunca existe um estado em que a
+decisão foi persistida sem o evento correspondente (ou vice-versa). As
+demais escritas (`salvar` sozinho, sem evento — ex. autorização recusada
+ou ainda pendente) continuam sendo `put_item` isolados, pois não há
+invariante entre tabelas a proteger nesses casos.
 """
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import boto3
+from boto3.dynamodb.types import TypeSerializer
+from botocore.exceptions import ClientError
 
 from ..domain.autorizacao import Autorizacao, StatusAutorizacao
 from ..domain.events import TransacaoAutorizada
@@ -25,6 +27,9 @@ from ..domain.idempotencia import RegistroIdempotencia, StatusIdempotencia
 from ..domain.outbox import RegistroOutbox, StatusOutbox
 from ..domain.ports import AutorizacaoRepository, IdempotenciaRepository, OutboxRepository
 from ..domain.value_objects import Money, TipoOperacao
+from ..domain.exceptions import OperacaoEmAndamentoError
+
+_serializer = TypeSerializer()
 
 
 def _resource():
@@ -33,9 +38,22 @@ def _resource():
     return boto3.resource("dynamodb", endpoint_url=endpoint_url, region_name=region)
 
 
+def _client():
+    endpoint_url = os.environ.get("AWS_ENDPOINT_URL")
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return boto3.client("dynamodb", endpoint_url=endpoint_url, region_name=region)
+
+
+def _serializar_item(item: dict) -> dict:
+    return {chave: _serializer.serialize(valor) for chave, valor in item.items()}
+
+
 class DynamoDbAutorizacaoRepository(AutorizacaoRepository):
-    def __init__(self, table_name: str | None = None):
-        self._table = _resource().Table(table_name or os.environ.get("AUTORIZACOES_TABLE_NAME", "autorizacoes"))
+    def __init__(self, table_name: str | None = None, outbox_table_name: str | None = None):
+        self._table_name = table_name or os.environ.get("AUTORIZACOES_TABLE_NAME", "autorizacoes")
+        self._table = _resource().Table(self._table_name)
+        self._outbox_table_name = outbox_table_name or os.environ.get("OUTBOX_TABLE_NAME", "autorizacao-outbox")
+        self._client = _client()
 
     def buscar(self, id_autorizacao: str) -> Optional[Autorizacao]:
         item = self._table.get_item(Key={"id_autorizacao": id_autorizacao}).get("Item")
@@ -54,7 +72,8 @@ class DynamoDbAutorizacaoRepository(AutorizacaoRepository):
             saldo_reservado=(Money.from_str(item["saldo_reservado"]) if item.get("saldo_reservado") else None),
         )
 
-    def salvar(self, autorizacao: Autorizacao) -> None:
+    @staticmethod
+    def _item_de(autorizacao: Autorizacao) -> dict:
         item = {
             "id_autorizacao": autorizacao.id_autorizacao,
             "id_contrato": autorizacao.id_contrato,
@@ -69,7 +88,61 @@ class DynamoDbAutorizacaoRepository(AutorizacaoRepository):
             item["id_autorizacao_original"] = autorizacao.id_autorizacao_original
         if autorizacao.saldo_reservado is not None:
             item["saldo_reservado"] = str(autorizacao.saldo_reservado)
-        self._table.put_item(Item=item)
+        return item
+
+    @staticmethod
+    def _item_outbox_de(registro: RegistroOutbox) -> dict:
+        return {
+            "event_id": registro.event_id,
+            "status": registro.status.value,
+            "criado_em": registro.criado_em.isoformat(),
+            "tentativas": registro.tentativas,
+            "envelope": registro.para_envelope(),
+        }
+
+    def salvar(self, autorizacao: Autorizacao) -> None:
+        self._table.put_item(Item=self._item_de(autorizacao))
+
+    def salvar_com_evento(
+        self,
+        autorizacao: Autorizacao,
+        registro_outbox: Optional[RegistroOutbox],
+        outbox_repository: Optional[OutboxRepository] = None,
+    ) -> None:
+        """Grava a autorização e o evento de outbox associado numa única
+        `TransactWriteItems`, cruzando as tabelas `autorizacoes` e
+        `autorizacao-outbox` — fecha o gap da ADR 02 (nunca existe
+        decisão persistida sem evento, nem o inverso). `outbox_repository`
+        é aceito só por compatibilidade de assinatura com o fallback não
+        atômico do adapter em memória; não é usado aqui."""
+        if registro_outbox is None:
+            self.salvar(autorizacao)
+            return
+        try:
+            self._client.transact_write_items(
+                TransactItems=[
+                    {
+                        "Put": {
+                            "TableName": self._table_name,
+                            "Item": _serializar_item(self._item_de(autorizacao)),
+                        }
+                    },
+                    {
+                        "Put": {
+                            "TableName": self._outbox_table_name,
+                            "Item": _serializar_item(self._item_outbox_de(registro_outbox)),
+                            "ConditionExpression": "attribute_not_exists(event_id)",
+                        }
+                    },
+                ]
+            )
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "TransactionCanceledException":
+                raise OperacaoEmAndamentoError(
+                    f"Falha ao gravar atomicamente autorização {autorizacao.id_autorizacao!r} e seu evento; "
+                    "tente novamente com a mesma Idempotency-Key"
+                ) from exc
+            raise
 
     def listar_pendentes_antes_de(self, limite_tempo: datetime) -> list[Autorizacao]:
         """Usado pelo sweeper (ADR 04). A tabela não tem GSI por status

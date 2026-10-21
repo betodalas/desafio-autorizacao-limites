@@ -42,6 +42,16 @@ Motivos:
   mesmo `TransactWriteItems` do agregado, nunca há evento publicado sem
   que o estado correspondente tenha sido persistido (nem o inverso).
 
+**Implementação:** `DynamoDbAutorizacaoRepository.salvar_com_evento`
+(`services/autorizacao/src/infrastructure/dynamodb_repository.py`) grava
+numa única `transact_write_items` cruzando as tabelas `autorizacoes` e
+`autorizacao-outbox`; se a transação falhar, nenhuma das duas escritas é
+aplicada. O caso de uso (`autorizar_transacao.py` /
+`estornar_autorizacao.py`) chama este método só quando a autorização é
+aprovada (único momento em que há evento a publicar); as demais escritas
+(pendente/recusada) seguem sendo `put_item` isolados, por não haver
+invariante entre tabelas a proteger nesses casos.
+
 ## Consequências
 - Há uma pequena latência adicional entre a escrita do agregado e a
   publicação do evento (intervalo de polling, ex. 1–2s) — aceitável para

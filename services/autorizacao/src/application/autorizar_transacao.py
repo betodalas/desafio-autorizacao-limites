@@ -135,22 +135,22 @@ class AutorizarTransacaoUseCase:
             ) from exc
 
         autorizacao.aprovar(resultado_gateway.saldo_reservado)
-        self._autorizacoes.salvar(autorizacao)
-        self._publicar_evento(autorizacao, comando.idempotency_key)
+        registro_outbox = self._montar_registro_outbox(autorizacao, comando.idempotency_key)
+        self._autorizacoes.salvar_com_evento(autorizacao, registro_outbox, self._outbox)
         resultado = AutorizacaoResultado.de_autorizacao(autorizacao)
         registro.concluir(asdict(resultado))
         self._idempotencias.salvar(registro)
         return resultado
 
-    def _publicar_evento(self, autorizacao: Autorizacao, correlation_id: str) -> None:
-        """Grava o evento `TransacaoAutorizada` na outbox (ver ADR 02).
-        Em memória isto não é atômico com `self._autorizacoes.salvar`,
-        mas em produção ambas as escritas compõem o mesmo
-        `TransactWriteItems`. Se `outbox_repository` não for fornecido
-        (ex.: testes focados na saga), a publicação é simplesmente
-        ignorada."""
+    def _montar_registro_outbox(
+        self, autorizacao: Autorizacao, correlation_id: str
+    ) -> Optional[RegistroOutbox]:
+        """Monta o registro de outbox do evento `TransacaoAutorizada` (ver
+        ADR 02), gravado junto com a autorização numa única escrita
+        atômica em `salvar_com_evento`. Se `outbox_repository` não foi
+        fornecido (ex.: testes focados na saga), não há o que montar."""
         if self._outbox is None:
-            return
+            return None
         evento = TransacaoAutorizada.agora(
             id_autorizacao=autorizacao.id_autorizacao,
             id_contrato=autorizacao.id_contrato,
@@ -158,7 +158,7 @@ class AutorizarTransacaoUseCase:
             saldo_reservado=autorizacao.saldo_reservado,
             correlation_id=correlation_id,
         )
-        self._outbox.salvar(RegistroOutbox.para(evento))
+        return RegistroOutbox.para(evento)
 
     def _resolver_reenvio(
         self, registro: RegistroIdempotencia, hash_payload: str

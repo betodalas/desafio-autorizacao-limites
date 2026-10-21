@@ -32,6 +32,25 @@ class AutorizacaoRepository(ABC):
         """Usado pelo sweeper (ver ADR 04) para reconciliar autorizações
         presas em PENDENTE há mais tempo que o timeout configurado."""
 
+    def salvar_com_evento(
+        self,
+        autorizacao: Autorizacao,
+        registro_outbox: Optional[RegistroOutbox],
+        outbox_repository: Optional["OutboxRepository"] = None,
+    ) -> None:
+        """Grava a autorização e, se houver, o evento de outbox
+        correspondente. Implementação padrão (não atômica entre as duas
+        escritas) usada pelo adapter em memória — adequada porque o
+        processo não "morre no meio" de duas chamadas Python síncronas
+        na prática de testes/demo local. O adapter DynamoDB sobrescreve
+        este método com uma única `TransactWriteItems` cruzando as
+        tabelas `autorizacoes` e `autorizacao-outbox`, fechando o gap
+        descrito na ADR 02 (nunca existe decisão persistida sem o evento
+        correspondente, nem o inverso)."""
+        self.salvar(autorizacao)
+        if registro_outbox is not None and outbox_repository is not None:
+            outbox_repository.salvar(registro_outbox)
+
 
 class IdempotenciaRepository(ABC):
     @abstractmethod
