@@ -1,0 +1,28 @@
+# Configuração comum para todos os serviços que falam com o LocalStack
+# (DynamoDB, SQS, EventBridge) dentro do cluster kind.
+#
+# Em produção (EKS), estas variáveis não existiriam: os clients boto3
+# usariam a região real da AWS e credenciais via IRSA (IAM Roles for
+# Service Accounts), sem endpoint_url customizado (ver ADR 05).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-local-config
+  namespace: financas
+data:
+  AWS_ENDPOINT_URL: "http://localstack.financas.svc.cluster.local:4566"
+  AWS_REGION: "us-east-1"
+  EVENT_BUS_NAME: "financas-eventos"
+  OUTBOX_TABLE_NAME: "autorizacao-outbox"
+---
+# Credenciais fake exigidas pelo boto3 para falar com o LocalStack — não
+# são segredos reais e não devem ser usadas fora deste ambiente local.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-local-credentials
+  namespace: financas
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "test"
+  AWS_SECRET_ACCESS_KEY: "test"

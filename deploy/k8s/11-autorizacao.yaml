@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autorizacao
+  namespace: financas
+  labels:
+    app: autorizacao
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autorizacao
+  template:
+    metadata:
+      labels:
+        app: autorizacao
+    spec:
+      containers:
+        - name: autorizacao
+          image: autorizacao-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: LIMITES_SERVICE_URL
+              value: "http://limites.financas.svc.cluster.local:8080"
+          envFrom:
+            - configMapRef:
+                name: aws-local-config
+            - secretRef:
+                name: aws-local-credentials
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autorizacao
+  namespace: financas
+spec:
+  type: NodePort
+  selector:
+    app: autorizacao
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080

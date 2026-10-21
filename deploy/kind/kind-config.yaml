@@ -1,0 +1,20 @@
+# Cluster kind de desenvolvimento local para o desafio. Um único nó de
+# control-plane é suficiente — o objetivo é validar a topologia de
+# deployment (Deployments, Services, KEDA), não simular alta
+# disponibilidade (isso fica a cargo do EKS em produção, ver ADR 05).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: desafio-autorizacao-limites
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Expõe o Serviço de Autorização (NodePort 30080) em localhost:8080
+      # para o `make demo` rodar curls diretamente do host.
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+      # Expõe o LocalStack (via NodePort 30566) em localhost:4566, para o
+      # `terraform apply` do `make up` rodar do host contra o cluster.
+      - containerPort: 30566
+        hostPort: 4566
+        protocol: TCP

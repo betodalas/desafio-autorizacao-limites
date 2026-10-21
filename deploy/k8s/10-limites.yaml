@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: limites
+  namespace: financas
+  labels:
+    app: limites
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: limites
+  template:
+    metadata:
+      labels:
+        app: limites
+    spec:
+      containers:
+        - name: limites
+          image: limites-service:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: aws-local-config
+            - secretRef:
+                name: aws-local-credentials
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: limites
+  namespace: financas
+spec:
+  selector:
+    app: limites
+  ports:
+    - port: 8080
+      targetPort: 8080

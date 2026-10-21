@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contabilizacao
+  namespace: financas
+  labels:
+    app: contabilizacao
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: contabilizacao
+  template:
+    metadata:
+      labels:
+        app: contabilizacao
+    spec:
+      containers:
+        - name: contabilizacao
+          image: contabilizacao-service:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONTABILIZACAO_QUEUE_URL
+              value: "http://localstack.financas.svc.cluster.local:4566/000000000000/contabilizacao"
+          envFrom:
+            - configMapRef:
+                name: aws-local-config
+            - secretRef:
+                name: aws-local-credentials
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+# Autenticação do KEDA junto ao SQS (LocalStack): reaproveita as mesmas
+# credenciais fake usadas pelos serviços. Em produção (EKS), seria
+# substituído por `podIdentity` (IRSA), sem secret nenhum.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: aws-local-trigger-auth
+  namespace: financas
+spec:
+  secretTargetRef:
+    - parameter: awsAccessKeyID
+      name: aws-local-credentials
+      key: AWS_ACCESS_KEY_ID
+    - parameter: awsSecretAccessKey
+      name: aws-local-credentials
+      key: AWS_SECRET_ACCESS_KEY
+---
+# Escala contabilização pela profundidade da fila SQS — scaler nativo do
+# KEDA (`aws-sqs-queue`), a opção mais idiomática para este caso (ver ADR
+# 05). minReplicaCount 0 permite escalar a zero quando não há trabalho.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: contabilizacao-scaler
+  namespace: financas
+spec:
+  scaleTargetRef:
+    name: contabilizacao
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  cooldownPeriod: 30
+  pollingInterval: 10
+  triggers:
+    - type: aws-sqs-queue
+      authenticationRef:
+        name: aws-local-trigger-auth
+      metadata:
+        queueURL: "http://localstack.financas.svc.cluster.local:4566/000000000000/contabilizacao"
+        queueLength: "5"
+        awsRegion: "us-east-1"
+        awsEndpoint: "http://localstack.financas.svc.cluster.local:4566"
