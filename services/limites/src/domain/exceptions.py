@@ -31,3 +31,12 @@ class OperacaoInvalidaError(LimiteDomainError):
 
 class TipoOperacaoDesconhecidoError(LimiteDomainError):
     """Não existe política registrada para o tipo de operação informado."""
+
+
+class ConflitoConcorrenciaError(LimiteDomainError):
+    """Duas escritas concorrentes tentaram alterar o mesmo contrato entre a
+    leitura e a gravação (controle otimista do adapter DynamoDB, ver ADR
+    03). O chamador deve tentar novamente.
+
+    Mapeia para HTTP 409 Conflict.
+    """

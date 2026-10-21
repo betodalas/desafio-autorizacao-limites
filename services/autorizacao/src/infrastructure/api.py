@@ -61,16 +61,38 @@ def _construir_gateway():
     return InProcessLimiteGateway()
 
 
+def _construir_repositorios():
+    """Escolhe os adapters de persistência conforme o ambiente: DynamoDB
+    real quando `AWS_ENDPOINT_URL` está configurada (k8s contra
+    LocalStack/AWS, ver `deploy/k8s/01-config.yaml`), ou em memória para
+    testes e `make demo` local sem containers."""
+    if os.environ.get("AWS_ENDPOINT_URL"):
+        from .dynamodb_repository import (
+            DynamoDbAutorizacaoRepository,
+            DynamoDbIdempotenciaRepository,
+            DynamoDbOutboxRepository,
+        )
+
+        return (
+            DynamoDbAutorizacaoRepository(),
+            DynamoDbIdempotenciaRepository(),
+            DynamoDbOutboxRepository(),
+        )
+    return (
+        InMemoryAutorizacaoRepository(),
+        InMemoryIdempotenciaRepository(),
+        InMemoryOutboxRepository(),
+    )
+
+
 app = FastAPI(
     title="Serviço de Autorização de Transações",
     version="1.0",
     description="Ver contracts/openapi.yaml para o contrato público completo.",
 )
 
-_autorizacoes = InMemoryAutorizacaoRepository()
-_idempotencias = InMemoryIdempotenciaRepository()
+_autorizacoes, _idempotencias, _outbox = _construir_repositorios()
 _gateway = _construir_gateway()
-_outbox = InMemoryOutboxRepository()
 _autorizar = AutorizarTransacaoUseCase(_autorizacoes, _idempotencias, _gateway, _outbox)
 _estornar = EstornarAutorizacaoUseCase(_autorizacoes, _idempotencias, _gateway, _outbox)
 
@@ -203,7 +225,8 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-def obter_outbox_repository() -> InMemoryOutboxRepository:
+def obter_outbox_repository():
     """Exposto para o `outbox-relay` local (`make demo`), que lê desta
-    mesma instância em processo em vez de uma tabela DynamoDB real."""
+    mesma instância em processo em vez de uma tabela DynamoDB real. O
+    tipo concreto depende do ambiente (ver `_construir_repositorios`)."""
     return _outbox

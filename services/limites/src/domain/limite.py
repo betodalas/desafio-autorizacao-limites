@@ -60,9 +60,11 @@ class Limite:
         resultante.
 
         Idempotente: se `id_autorizacao` já foi aplicada anteriormente,
-        retorna o evento original sem reaplicar o efeito — espelha a
-        garantia de `attribute_not_exists(id_autorizacao)` do adapter
-        DynamoDB (ADR 03), permitindo testar a idempotência sem AWS.
+        retorna o evento original sem reaplicar o efeito — essa checagem
+        em memória (`self._reservas.get(...)`) é o que garante a
+        idempotência tanto no adapter em memória quanto no DynamoDB (ver
+        `dynamodb_repository.py` e ADR 03), já que o agregado inteiro é
+        reconstruído antes de cada escrita.
         """
         valor.exige_positivo()
 

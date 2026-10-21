@@ -14,6 +14,9 @@ data:
   AWS_REGION: "us-east-1"
   EVENT_BUS_NAME: "financas-eventos"
   OUTBOX_TABLE_NAME: "autorizacao-outbox"
+  AUTORIZACOES_TABLE_NAME: "autorizacoes"
+  IDEMPOTENCIA_TABLE_NAME: "idempotencia"
+  LIMITES_TABLE_NAME: "limites"
 ---
 # Credenciais fake exigidas pelo boto3 para falar com o LocalStack — não
 # são segredos reais e não devem ser usadas fora deste ambiente local.

@@ -8,7 +8,7 @@ LOCALSTACK_URL := http://localhost:4566
 AUTORIZACAO_URL := http://localhost:18080
 TF_DIR := terraform/envs/local
 
-.PHONY: help up down demo build-images load-images deploy-k8s install-keda wait-ready terraform-apply seed clean-images test setup
+.PHONY: help up down demo build-images load-images deploy-k8s deploy-infra-k8s deploy-apps-k8s install-keda wait-ready terraform-apply seed clean-images test setup
 
 help: ## Lista os alvos disponíveis
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -48,15 +48,19 @@ install-keda: ## Instala o KEDA via Helm (necessário para os ScaledObject)
 	kubectl create namespace $(KEDA_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
 	helm upgrade --install keda kedacore/keda --namespace $(KEDA_NAMESPACE) --wait --timeout 3m
 
-deploy-k8s: ## Aplica os manifestos k8s (namespace, config, serviços, KEDA ScaledObjects)
+deploy-infra-k8s: ## Aplica namespace/config/LocalStack e espera ficar pronto (precisa rodar antes do terraform-apply)
 	kubectl apply -f deploy/k8s/00-namespace.yaml
 	kubectl apply -f deploy/k8s/01-config.yaml
 	kubectl apply -f deploy/k8s/05-localstack.yaml
 	kubectl rollout status deployment/localstack -n $(NAMESPACE) --timeout=120s
+
+deploy-apps-k8s: ## Aplica os serviços da aplicação (precisa rodar depois do terraform-apply, pois eles dependem das tabelas/filas já existirem)
 	kubectl apply -f deploy/k8s/10-limites.yaml
 	kubectl apply -f deploy/k8s/11-autorizacao.yaml
 	kubectl apply -f deploy/k8s/20-contabilizacao.yaml
 	kubectl apply -f deploy/k8s/30-outbox-relay.yaml
+
+deploy-k8s: deploy-infra-k8s deploy-apps-k8s ## Aplica todos os manifestos k8s (mantido por compatibilidade; `up` usa os alvos separados para respeitar a ordem com o terraform-apply)
 
 wait-ready: ## Espera os Deployments ficarem prontos
 	kubectl rollout status deployment/limites -n $(NAMESPACE) --timeout=120s
@@ -71,9 +75,10 @@ up: ## Sobe o cluster kind, LocalStack, KEDA, serviços e provisiona IaC (fluxo 
 	kind get clusters | grep -q '^$(CLUSTER_NAME)$$' || kind create cluster --config deploy/kind/kind-config.yaml
 	$(MAKE) install-keda
 	$(MAKE) load-images
-	$(MAKE) deploy-k8s
-	$(MAKE) wait-ready
+	$(MAKE) deploy-infra-k8s
 	$(MAKE) terraform-apply
+	$(MAKE) deploy-apps-k8s
+	$(MAKE) wait-ready
 	@echo ">> Ambiente pronto. Autorização disponível em $(AUTORIZACAO_URL), LocalStack em $(LOCALSTACK_URL)."
 	@echo ">> Rode 'make demo' para ver o fluxo ponta a ponta."
 

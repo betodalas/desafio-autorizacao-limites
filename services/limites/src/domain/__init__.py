@@ -1,5 +1,6 @@
 from .events import LimiteOperacaoAplicada
 from .exceptions import (
+    ConflitoConcorrenciaError,
     ContratoNaoEncontradoError,
     LimiteDomainError,
     LimiteInsuficienteError,
@@ -12,6 +13,7 @@ from .value_objects import Money, TipoOperacao, ValorInvalidoError
 
 __all__ = [
     "LimiteOperacaoAplicada",
+    "ConflitoConcorrenciaError",
     "ContratoNaoEncontradoError",
     "LimiteDomainError",
     "LimiteInsuficienteError",

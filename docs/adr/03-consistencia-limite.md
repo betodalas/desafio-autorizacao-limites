@@ -17,31 +17,49 @@ ultrapassar o limite total (condição de corrida clássica de
 leitura-depois-escrita).
 
 ## Decisão
-A reserva de limite é feita com **DynamoDB `TransactWriteItems`**, em uma
-única operação condicional que:
+A reserva de limite é feita com **DynamoDB `TransactWriteItems`**, usando
+uma condição atômica que impede a violação da invariante acima sem
+precisar de lock externo.
 
-1. Atualiza o item `Limite` incrementando `saldo_reservado` em `valor`,
-   **com `ConditionExpression`**:
-   `saldo_reservado + :valor <= limite_total` (avaliada atomicamente pelo
-   próprio DynamoDB, sem leitura prévia fora da transação).
-2. Cria, na mesma transação, o item de **reserva** (`id_autorizacao` como
-   chave), com `ConditionExpression attribute_not_exists(id_autorizacao)`
-   — garante idempotência: uma segunda tentativa com o mesmo
-   `id_autorizacao` falha a condição e não soma o valor duas vezes.
-3. Insere, na mesma transação, o registro de **outbox** com o evento de
-   domínio (`LimiteReservado`), garantindo atomicidade entre estado e
-   evento (ver ADR 02).
+**Modelo de dados (implementação real):** a tabela `limites` tem apenas
+partition key (`pk` = `id_contrato`), sem sort key — por isso o agregado
+inteiro (`limite_total`, `saldo_reservado` e o mapa de `reservas` por
+`id_autorizacao`) é persistido como **um único item por contrato**, em vez
+de itens separados para limite/reserva/outbox. A gravação ainda usa
+`transact_write_items` (um único `Put` com `ConditionExpression`) para
+deixar explícito, no código do adapter
+(`services/limites/src/infrastructure/dynamodb_repository.py`), que o
+mecanismo de concorrência é o mesmo primitivo transacional do DynamoDB, e
+para manter a porta aberta a uma futura divisão em itens caso surja a
+necessidade de consultá-los individualmente (ex. GSI por status de
+reserva).
+
+O fluxo de escrita:
+
+1. Lê o item do contrato (`saldo_reservado` atual).
+2. Aplica a operação em memória no agregado `Limite` (que já valida
+   `saldo_reservado + valor <= limite_total` antes de gravar).
+3. Grava o item inteiro de volta via `transact_write_items`, com
+   `ConditionExpression saldo_reservado = :valor_lido` — se outro
+   processo já tiver alterado o saldo entre a leitura e a escrita, a
+   condição falha (`TransactionCanceledException`) e o repositório
+   relança como `ConflitoConcorrenciaError` (409), sem nunca aplicar a
+   operação duas vezes.
+4. A publicação do evento de domínio (`TransacaoAutorizada`) na outbox é
+   uma escrita separada, feita pelo Serviço de Autorização (não faz parte
+   desta mesma transação — ver ADR 02 e ADR 04 sobre a saga leve entre os
+   dois serviços/bancos).
 
 Se a condição falhar, a API retorna:
 - **402 Payment Required** quando a causa é limite insuficiente (regra de
-  negócio).
+  negócio, validada antes mesmo de tentar escrever).
 - **409 Conflict** quando a causa é concorrência genuína detectada pelo
   DynamoDB (`TransactionCanceledException` por `ConditionalCheckFailed` em
   cenário de corrida), permitindo ao cliente decidir se tenta novamente.
 
 A liberação de reserva (estorno) usa o mesmo mecanismo em sentido inverso:
 decremento condicional de `saldo_reservado`, nunca permitindo valor
-negativo (`saldo_reservado - :valor >= 0`).
+negativo.
 
 ## Alternativas consideradas
 - **Lock otimista com campo de versão + retry no cliente:** rejeitado

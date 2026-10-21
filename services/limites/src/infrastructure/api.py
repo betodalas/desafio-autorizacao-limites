@@ -10,6 +10,7 @@ forma isolada (ex: Postman, smoke tests, diagramas de implantação).
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, Request
@@ -22,6 +23,7 @@ from ..application import (
     ConsultarSaldoLimiteUseCase,
 )
 from ..domain import (
+    ConflitoConcorrenciaError,
     ContratoNaoEncontradoError,
     Limite,
     LimiteInsuficienteError,
@@ -30,6 +32,7 @@ from ..domain import (
     TipoOperacaoDesconhecidoError,
     ValorInvalidoError,
 )
+from ..domain.repository import LimiteRepository
 from ..domain.value_objects import TipoOperacao
 from .memory_repository import InMemoryLimiteRepository
 
@@ -42,7 +45,20 @@ app = FastAPI(
     ),
 )
 
-_repository = InMemoryLimiteRepository()
+
+def _construir_repository() -> LimiteRepository:
+    """Usa o adapter DynamoDB real quando `AWS_ENDPOINT_URL` está
+    configurado (rodando em k8s contra LocalStack/AWS, ver
+    `deploy/k8s/01-config.yaml`); caso contrário usa o adapter em memória
+    (testes e `make demo` local sem containers)."""
+    if os.environ.get("AWS_ENDPOINT_URL"):
+        from .dynamodb_repository import DynamoDbLimiteRepository
+
+        return DynamoDbLimiteRepository()
+    return InMemoryLimiteRepository()
+
+
+_repository = _construir_repository()
 _aplicar_operacao = AplicarOperacaoLimiteUseCase(_repository)
 _consultar_saldo = ConsultarSaldoLimiteUseCase(_repository)
 
@@ -90,6 +106,11 @@ async def _handle_operacao_invalida(request: Request, exc: OperacaoInvalidaError
 @app.exception_handler(TipoOperacaoDesconhecidoError)
 async def _handle_tipo_desconhecido(request: Request, exc: TipoOperacaoDesconhecidoError):
     return _problem(422, "Tipo de operação desconhecido", str(exc), request.headers.get("X-Correlation-Id"))
+
+
+@app.exception_handler(ConflitoConcorrenciaError)
+async def _handle_conflito_concorrencia(request: Request, exc: ConflitoConcorrenciaError):
+    return _problem(409, "Conflito de concorrência", str(exc), request.headers.get("X-Correlation-Id"))
 
 
 @app.exception_handler(ValorInvalidoError)
