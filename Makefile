@@ -5,7 +5,7 @@ CLUSTER_NAME := desafio-autorizacao-limites
 NAMESPACE := financas
 KEDA_NAMESPACE := keda
 LOCALSTACK_URL := http://localhost:4566
-AUTORIZACAO_URL := http://localhost:8080
+AUTORIZACAO_URL := http://localhost:18080
 TF_DIR := terraform/envs/local
 
 .PHONY: help up down demo build-images load-images deploy-k8s install-keda wait-ready terraform-apply seed clean-images test setup

@@ -8,10 +8,12 @@ name: desafio-autorizacao-limites
 nodes:
   - role: control-plane
     extraPortMappings:
-      # Expõe o Serviço de Autorização (NodePort 30080) em localhost:8080
-      # para o `make demo` rodar curls diretamente do host.
+      # Expõe o Serviço de Autorização (NodePort 30080) em localhost:18080
+      # para o `make demo` rodar curls diretamente do host. Porta 18080
+      # (em vez de 8080) para evitar conflito com outros processos comuns
+      # de desenvolvimento que já ocupam 8080 no host.
       - containerPort: 30080
-        hostPort: 8080
+        hostPort: 18080
         protocol: TCP
       # Expõe o LocalStack (via NodePort 30566) em localhost:4566, para o
       # `terraform apply` do `make up` rodar do host contra o cluster.

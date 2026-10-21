@@ -22,7 +22,7 @@ graph TB
         end
     end
 
-    CURL -->|localhost:8080| AUT
+    CURL -->|localhost:18080| AUT
     TF -->|localhost:4566| LS
     AUT -->|HTTP interno| LIM
     AUT -->|TransactWriteItems| LS
