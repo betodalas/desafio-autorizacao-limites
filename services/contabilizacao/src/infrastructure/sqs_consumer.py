@@ -32,6 +32,17 @@ def _cliente_sqs():
     return boto3.client("sqs", endpoint_url=endpoint_url, region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
 
+def extrair_detail(body: dict) -> dict:
+    """Quando a mensagem chega via EventBridge -> SQS, o corpo da mensagem
+    é o *envelope* do EventBridge (`source`, `detail-type`, `detail`, ...),
+    não o payload de negócio puro. O conteúdo que nos interessa está em
+    `detail`. Mantém compatibilidade com testes/smoke manual que publicam
+    o payload de negócio direto na fila (sem o envelope do EventBridge)."""
+    if "detail" in body and "detail-type" in body:
+        return body["detail"]
+    return body
+
+
 def executar_loop(
     queue_url: str | None = None,
     use_case: ProcessarTransacaoAutorizadaUseCase | None = None,
@@ -53,7 +64,7 @@ def executar_loop(
         mensagens = resposta.get("Messages", [])
         for mensagem in mensagens:
             try:
-                envelope = json.loads(mensagem["Body"])
+                envelope = extrair_detail(json.loads(mensagem["Body"]))
                 lancamento, criado = use_case.executar(envelope)
                 logger.info(
                     "lancamento processado event_id=%s criado=%s", lancamento.event_id, criado
