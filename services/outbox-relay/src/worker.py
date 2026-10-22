@@ -39,6 +39,7 @@ class RelayWorker:
                 self._publisher.publicar(registro.para_envelope())
                 self._source.marcar_publicado(registro.event_id)
                 publicados += 1
+                logger.info("evento publicado event_id=%s", registro.event_id)
             except Exception as exc:  # noqa: BLE001 - qualquer falha de publicação é retry/DLQ
                 logger.warning(
                     "falha ao publicar event_id=%s tentativa=%s: %s",

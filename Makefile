@@ -84,18 +84,19 @@ up: ## Sobe o cluster kind, LocalStack, KEDA, serviços e provisiona IaC (fluxo 
 
 demo: ## Seeda um contrato, autoriza uma transação, estorna, e mostra os logs do pipeline de outbox
 	@set -e; \
+	RUN_ID=$$(date +%s); \
 	echo ">> seed: cadastrando limite de 1000.00 para o contrato demo-1"; \
 	curl -sf -X POST $(AUTORIZACAO_URL)/internal/contratos/demo-1/limites \
 		-H 'content-type: application/json' -d '{"limite_total":"1000.00"}'; echo; \
 	echo ">> autorizando transacao de 150.00"; \
 	RESP=$$(curl -sf -X POST $(AUTORIZACAO_URL)/v1/contratos/demo-1/autorizacoes \
-		-H 'content-type: application/json' -H 'Idempotency-Key: demo-key-1' \
+		-H 'content-type: application/json' -H "Idempotency-Key: demo-key-$$RUN_ID" \
 		-d '{"id_conta":"conta-demo","valor":"150.00","moeda":"BRL","tipo_operacao":"DEBITO"}'); \
 	echo "$$RESP"; \
 	ID_AUT=$$(echo "$$RESP" | python3 -c 'import sys, json; print(json.load(sys.stdin)["id_autorizacao"])'); \
 	echo ">> estornando autorizacao $$ID_AUT"; \
 	curl -sf -X POST $(AUTORIZACAO_URL)/v1/contratos/demo-1/autorizacoes/$$ID_AUT/estornos \
-		-H 'content-type: application/json' -H 'Idempotency-Key: demo-key-estorno-1' \
+		-H 'content-type: application/json' -H "Idempotency-Key: demo-key-estorno-$$RUN_ID" \
 		-d "{\"id_autorizacao_original\":\"$$ID_AUT\",\"valor\":\"150.00\",\"moeda\":\"BRL\"}"; echo; \
 	echo ">> aguardando o outbox-relay publicar o evento (poll a cada 2s)..."; \
 	sleep 6; \
