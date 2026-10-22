@@ -97,6 +97,8 @@ demo: ## Seeda um contrato, autoriza uma transação, estorna, e mostra os logs 
 	curl -sf -X POST $(AUTORIZACAO_URL)/v1/contratos/demo-1/autorizacoes/$$ID_AUT/estornos \
 		-H 'content-type: application/json' -H 'Idempotency-Key: demo-key-estorno-1' \
 		-d "{\"id_autorizacao_original\":\"$$ID_AUT\",\"valor\":\"150.00\",\"moeda\":\"BRL\"}"; echo; \
+	echo ">> aguardando o outbox-relay publicar o evento (poll a cada 2s)..."; \
+	sleep 6; \
 	echo ">> logs recentes do outbox-relay (publicacao do evento TransacaoAutorizada):"; \
 	kubectl logs deployment/outbox-relay -n $(NAMESPACE) --tail=20 2>/dev/null || true; \
 	echo ">> logs recentes da contabilizacao (consumo idempotente do evento):"; \
