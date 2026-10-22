@@ -102,8 +102,15 @@ demo: ## Seeda um contrato, autoriza uma transação, estorna, e mostra os logs 
 	sleep 6; \
 	echo ">> logs recentes do outbox-relay (publicacao do evento TransacaoAutorizada):"; \
 	kubectl logs deployment/outbox-relay -n $(NAMESPACE) --tail=20 2>/dev/null || true; \
+	echo ">> aguardando o KEDA escalar a contabilizacao a partir de zero replicas (poll da fila a cada 10s)..."; \
+	for i in $$(seq 1 20); do \
+		if kubectl get pods -n $(NAMESPACE) -l app=contabilizacao --no-headers 2>/dev/null | grep -q Running; then break; fi; \
+		sleep 2; \
+	done; \
+	kubectl wait --for=condition=ready pod -l app=contabilizacao -n $(NAMESPACE) --timeout=30s >/dev/null 2>&1 || true; \
+	sleep 2; \
 	echo ">> logs recentes da contabilizacao (consumo idempotente do evento):"; \
-	kubectl logs deployment/contabilizacao -n $(NAMESPACE) --tail=20 2>/dev/null || true
+	kubectl logs -l app=contabilizacao -n $(NAMESPACE) --tail=20 2>/dev/null || echo "(nenhum pod rodando ainda - o KEDA pode levar ate ~10s de poll + cold start para escalar de 0)"
 
 clean-images: ## Remove as imagens :local construídas localmente
 	-docker rmi limites-service:local autorizacao-service:local contabilizacao-service:local outbox-relay-service:local
